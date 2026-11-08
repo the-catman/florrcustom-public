@@ -1,0 +1,7 @@
+*
+!client/CMakeLists.txt
+!client/src
+!client/web
+!server/CMakeLists.txt
+!server/src
+!shared

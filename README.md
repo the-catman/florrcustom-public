@@ -39,6 +39,22 @@ Environment variables:
 - `HOST`: the address to listen on (0.0.0.0 by default).
 - `STATIC`: folders to serve the page from, in order, separated by `:` (`client/dist` by default).
 
+## Docker
+
+```
+docker compose up -d --build
+```
+This builds the client and server into one image and runs it behind [Caddy](https://caddyserver.com), which handles HTTPS. By default it serves https://localhost with Caddy's own certificate. Set `SITE_ADDRESS` to your domain to get a real one (ports 80 and 443 need to be reachable). `HTTP_PORT` and `HTTPS_PORT` change the published ports. All of these can go in a `.env` file next to `compose.yaml`.
+
+To play through a Cloudflare quick tunnel instead, without opening any ports:
+```
+docker compose up -d --build tunnel
+docker compose logs tunnel | grep trycloudflare.com
+```
+The second command prints the address. It changes whenever the tunnel restarts.
+
+The game container holds only the static server binary and the client. It runs as a non-root user with no capabilities on a read-only filesystem, on a network with no internet access, and isn't published itself: players reach it through Caddy or the tunnel.
+
 ## Layout
 
 - `shared`: what the client and server agree on: components, field numbers, message types, the packet encoding, and the catalog of petals and mobs.

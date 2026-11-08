@@ -1,0 +1,8 @@
+{
+	skip_install_trust
+}
+
+{$SITE_ADDRESS:localhost} {
+	encode zstd gzip
+	reverse_proxy server:8098
+}

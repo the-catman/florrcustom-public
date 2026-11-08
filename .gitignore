@@ -1,4 +1,5 @@
 .vscode/
+.env
 client/build/
 client/dist/
 server/build/
