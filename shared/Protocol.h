@@ -34,12 +34,15 @@ enum Comp : int {
     C_STATUS = 27,
     C_BEE = 28,
     C_FLOWER = 29,
-    C_LOOT = 30,   // server only: what a mob drops and the xp it gives
-    C_CATCH = 31,  // server only: a web that slows what's inside it
+    C_LOOT = 30,    // server only: what a mob drops and the xp it gives
+    C_CATCH = 31,   // server only: a web that slows what's inside it
+    C_TANK = 32,    // a diep tank's body, or anything drawn like one
+    C_SHOT = 33,    // something a tank fired
+    C_DRIVER = 34,  // on a camera: the tank its player drives
 };
 
-// the components clients are told about, in the order a full state sends them; the others carry no fields
-constexpr unsigned kWireComps = 0x3fffffffu;
+// the components clients are told about; the others carry no fields
+constexpr unsigned long long kWireComps = 0x3fffffffull | 1ull << C_TANK | 1ull << C_SHOT | 1ull << C_DRIVER;
 
 enum Field : int {
     // drop
@@ -125,6 +128,53 @@ enum Field : int {
     F_COOLDOWNS = 61,
     F_LEVEL = 62,
     F_ZONE_TIMER = 63,
+    // tank
+    F_TANK_LAYOUT = 65,   // the tank it's drawn as
+    F_TANK_FIRED = 66,    // one bit per barrel, flipped each time it fires
+    F_TANK_TURRETS = 67,  // auto turrets' aim, in 65536ths of a turn
+    F_TANK_SPIN = 68,     // how far a ring of turrets has turned, in 65536ths of a turn
+    F_TANK_FLAGS = 69,    // bit 0: just spawned (blinks)
+    F_TANK_ALPHA = 70,    // 255 shown .. 0 invisible
+    F_TANK_TEAM = 71,     // the camera it fights for
+    // shot
+    F_SHOT_KIND = 72,
+    F_SHOT_TEAM = 73,   // the camera it fights for
+    F_SHOT_LOOK = 74,   // sides, 1 a circle
+    F_SHOT_COLOR = 75,  // a Color
+    // driver
+    F_DRIVER_TANK = 76,
+    F_DRIVER_LEVEL = 77,
+    F_DRIVER_SCORE = 78,
+    F_DRIVER_STATS = 79,   // points in each stat
+    F_DRIVER_POINTS = 80,  // points to spend
+    F_DRIVER_ALIVE = 81,   // seconds the last tank lived
+    F_DRIVER_DEATH_TANK = 82,
+    F_TANK_COLOR = 83,  // a Color
+    F_TANK_SCORE = 84,  // its player's score
+    F_SHOT_MOB = 85,    // a claimed mob's type plus one, drawn as that mob; 0 none
+};
+
+// what colour a tank or a shot is drawn in
+enum Color : int {
+    COLOR_TEAM,  // blue for your own side, red for anyone else's
+    COLOR_FALLEN,
+    COLOR_NECRO,
+    COLOR_CRASHER,
+    COLOR_SQUARE,
+    COLOR_TRIANGLE,
+    COLOR_NEUTRAL,
+};
+
+// what a tank shot is
+enum ShotKind : int {
+    SHOT_BULLET,
+    SHOT_TRAP,
+    SHOT_DRONE,
+    SHOT_NECRO,
+    SHOT_SWARM,
+    SHOT_MINION,
+    SHOT_SKIMMER,
+    SHOT_ROCKET,
 };
 
 // the field that goes on the wire as id 1, ahead of the rest
@@ -139,13 +189,26 @@ enum ClientMessage : int {
     MSG_SWAP = 10,     // slot, its petal, other slot, its petal
     MSG_INPUT = 12,    // flags, angle, distance
     MSG_ACTION = 13,
+    MSG_STAT = 14,     // tank stat, the level it should reach
+    MSG_UPGRADE = 15,  // tank to become
+    MSG_DEV = 16,      // test keys, when the server allows them: 0 level up, 1 previous tank, 2 die,
+                       // 3 a petal for a flower, its type next
+    MSG_KIND = 17,     // what the next spawn is on a tank server: 0 a tank, 1 a flower
 };
+
+// input flags past attack (bit 0) and defend (bit 1)
+constexpr unsigned kInputUp = 1u << 4;
+constexpr unsigned kInputDown = 1u << 5;
+constexpr unsigned kInputLeft = 1u << 6;
+constexpr unsigned kInputRight = 1u << 7;
 
 // what a server sends after the entities of an update
 enum ServerEvent : int {
     EVENT_PLAYER_ID = 9,  // text
     EVENT_HIT = 11,       // entity
     EVENT_PICKUP = 14,    // entity, slot
+    EVENT_NOTIFY = 16,    // text, colour, how long it shows in ms
+    EVENT_DEV = 17,       // the server allows test keys
 };
 
 constexpr int kPacketUpdate = 1;

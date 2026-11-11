@@ -20,6 +20,7 @@ Game::Game(uint32_t seed, double now)
       effects(*this),
       mobs(*this),
       mobAi(*this),
+      tanks(*this),
       clients(*this) {
     arena.init();
     // nobody is told about these two
@@ -60,6 +61,7 @@ void Game::tick(double time) {
     arena.updateLeaderboard();
     effects.tick(dt);
     effects.tickWebs();
+    if (tankMode) tanks.tick(dt);
     flowers.tick(dt);
     petals.move(dt);
     flowers.move(dt);

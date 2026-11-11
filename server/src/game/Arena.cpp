@@ -19,7 +19,12 @@ void Arena::updateLeaderboard() {
     std::vector<Client *> rows;
     for (auto &[id, c] : game_.clients.all)
         if (world_.get(c.flower)) rows.push_back(&c);
-    auto score = [&](const Client *c) { return world_.get(c->flower)->flower->score; };
+    auto score = [&](const Client *c) {
+        Entity &f = *world_.get(c->flower);
+        if (f.has(C_FLOWER)) return f.flower->score;
+        Entity *cam = world_.get(c->camera);
+        return cam && cam->has(C_DRIVER) ? cam->driver->score : 0.0f;
+    };
     std::sort(rows.begin(), rows.end(), [&](const Client *a, const Client *b) { return score(b) < score(a); });
     Entity *arena = world_.get(id);
     if (!arena) return;

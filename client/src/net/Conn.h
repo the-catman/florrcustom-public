@@ -18,6 +18,8 @@ struct Event {
     uint32_t id = 0;
     int slot = 0;
     std::string text;
+    uint32_t color = 0;  // a notification's
+    float ms = 0;        // how long it shows
 };
 
 class Conn {

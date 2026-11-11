@@ -24,9 +24,14 @@ int Clients::connect() {
     int id = nextClient_++;
     Client &c = all[id];
     packets[id];
-    Entity &cam = entities_.create(bit(C_CAMERA));
+    Entity &cam = entities_.create(bit(C_CAMERA) | (game_.tankMode ? bit(C_DRIVER) : 0));
     cam.camera->setFov(1);
     c.camera = cam.id;
+    if (game_.devKeys) {
+        net::Writer w;
+        w.varint(EVENT_DEV);
+        c.events.push_back({true, std::move(w.b)});
+    }
     return id;
 }
 
@@ -34,7 +39,9 @@ void Clients::disconnect(int client) {
     auto it = all.find(client);
     if (it == all.end()) return;
     Client &c = it->second;
-    if (Entity *f = world_.get(c.flower)) {
+    if (Entity *f = world_.get(c.flower); f && entities_.obj(*f).tank) {
+        entities_.destroy(f->id);
+    } else if (f) {
         FlowerState fs = game_.flowers.states[f->slot()];
         for (auto &copies : fs.petal)
             for (uint32_t p : copies) entities_.destroy(p);
@@ -81,7 +88,36 @@ void Clients::handle(Client &c, uint32_t type, net::Reader &r, bool apply) {
             std::string name = r.str();
             if (!apply) break;
             c.name = name;
-            if (c.camera) game_.flowers.spawn(c);
+            if (c.camera && game_.tankMode && !c.asFlower)
+                game_.tanks.spawn(c);
+            else if (c.camera)
+                game_.flowers.spawn(c);
+            break;
+        }
+        case MSG_STAT: {
+            int stat = r.u8(), level = r.u8();
+            if (apply && game_.tankMode) game_.tanks.onStat(c, stat, level);
+            break;
+        }
+        case MSG_UPGRADE: {
+            int id = r.u8();
+            if (apply && game_.tankMode) game_.tanks.onUpgrade(c, id);
+            break;
+        }
+        case MSG_KIND: {
+            int kind = r.u8();
+            if (apply) c.asFlower = kind == 1;
+            break;
+        }
+        case MSG_DEV: {
+            int what = r.u8();
+            int type = what == 3 ? r.u8() : 0;
+            if (!apply) break;
+            Entity *f = world_.get(c.flower);
+            if (f && f->has(C_FLOWER))
+                game_.flowers.onDev(*f, what, type);
+            else if (game_.tankMode)
+                game_.tanks.onDev(c, what);
             break;
         }
         case 3:
@@ -139,7 +175,7 @@ void Clients::onInput(Client &c, net::Reader &r, bool apply) {
     angle = float(std::fmod(double(angle), TAU));
     c.input = {flags, angle, dist < 0.0f || dist != dist ? 0.0f : dist};
     Entity *f = world_.get(c.flower);
-    if (!f) return;
+    if (!f || !f->has(C_FLOWER)) return;
     // where the eyes look, in 256ths of a turn
     double q = std::floor(std::fmod(std::fmod(double(angle), TAU) + TAU, TAU) * (255.0 / TAU));
     f->flower->setEyes(toU32(q) & 255);
@@ -158,6 +194,11 @@ void Clients::moveCameras() {
         if (!t) t = world_.get(entities_.obj(*cam).killer);
         if (!t || !entities_.obj(*t).body) continue;
         const Body &b = *entities_.obj(*t).body;
+        if (const TankState *ts = entities_.obj(*t).tank.get(); ts && ts->zoomed && t->hp() > 0) {
+            cam->camera->setX(float(ts->zoomX));
+            cam->camera->setY(float(ts->zoomY));
+            continue;
+        }
         cam->camera->setX(b.x);
         cam->camera->setY(b.y);
     }

@@ -18,6 +18,7 @@ struct Input {
     bool left = false, right = false, space = false, shift = false;
     bool up = false, down = false, leftKey = false, rightKey = false;
     bool keyO = false, keyL = false, keyJ = false;  // held; sent to the server as input bits
+    bool keyY = false, keyU = false, keyM = false;  // tanks: the class tree, and building stats
     bool clicked = false;                           // left button went down this frame
     float clickX = 0, clickY = 0;
 };
@@ -53,6 +54,10 @@ public:
     // phones and tablets: fingers instead of the mouse; phase 0 start, 1 move, 2 end
     // phones always use them; elsewhere they are a setting, offered once a touch has been seen
     bool touchMode() const { return mobile || (touchSeen && settings.touchControls); }
+    // the server runs tanks: the camera comes with a driver
+    bool tankServer() const;
+    // you play a tank: on a tank server, unless your player, or the last one you had, is a flower
+    bool tankMode() const { return tankServer() && tankPlayer_; }
     void noteTouch() { touchSeen = true; }
     void onTouch(int phase, int id, float x, float y);  // canvas pixels
 
@@ -75,18 +80,32 @@ public:
     uint32_t player = 0;  // your flower while it lives, and for as long as it lingers after
     LastLife lastLife;
     bool forceInput = false;  // send the input this frame even if it hasn't changed
+    bool autoFire = false;    // E
+    bool autoSpin = false;    // C
+    float tankAngle = 0;      // where your tank is aiming
+    bool playTank = true;     // what the title screen spawns on a tank server
+    bool devKeys = false;     // the server allows test keys
+    void choosePlay(bool tank);
 
 private:
     void handleEvents(double now);
     void trackPlayer(double now);
     void rememberLife(const sim::FlowerData &flower);
+    void sendSpawn();
     void sendInput(double now);
+    void sendTankInput(double now);
+    void onTankKey(const char *code);
+    bool onFlowerDevKey(const char *code);
+    void sendDev(int what, int type = -1);
 
     bool wasAlive_ = false;
+    bool tankPlayer_ = true;
+    double spawnSentAt_ = 0;
     double lastInput_ = 0;
     float lastAngle_ = 0;
     float lastDist_ = 0;
     uint32_t lastFlags_ = 0;
+    double spinPhase_ = 0;
     bool keyY_ = false;  // pressed this frame
     bool keyI_ = false;
 };

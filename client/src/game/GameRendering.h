@@ -25,6 +25,8 @@ public:
 
 private:
     void drawEntity(cp6::Context &c, sim::Entity &e, double now, float alpha, float grow);
+    void drawDiep(cp6::Context &c, sim::Entity &e, double now);
+    float deathAlpha(const sim::Entity &e, double now) const;
     void drawMovementHelper(cp6::Context &c, float dt);
 
     Game &game_;

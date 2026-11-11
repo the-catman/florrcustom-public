@@ -19,7 +19,7 @@ static void unlist(std::vector<T> &v, T x) {
 
 Entities::Entities(Game &game) : objs(world::kSlots), game_(game) {}
 
-Entity &Entities::create(uint32_t comps) {
+Entity &Entities::create(uint64_t comps) {
     Entity &e = world.create(comps);
     objs[e.slot()] = Obj();
     if (comps & bit(C_STATUS)) {
@@ -45,6 +45,7 @@ void Entities::destroy(uint32_t id) {
         unlist(game_.effects.webs, id);
     }
     if (e->has(C_FLOWER)) unlist(game_.flowers.all, id);
+    if (o.tank || o.shot) game_.tanks.forget(*e);
     if (e->has(C_PETAL)) unlist(game_.petals.all, id);
     for (Mobs::Hole &h : game_.mobs.holes)
         if (h.id == id) {

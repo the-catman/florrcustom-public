@@ -18,13 +18,13 @@ World::World() {
     }
 }
 
-Entity &World::create(uint32_t comps) {
+Entity &World::create(uint64_t comps) {
     uint16_t slot = free_.front();
     free_.pop_front();
     auto &p = ents_[slot];
     p = std::make_unique<Entity>();
     p->id = ids_[slot];
-    for (int c = 0; c < 32; c++)
+    for (int c = 0; c < 64; c++)
         if (comps >> c & 1) p->add(c);
     used_.insert(std::lower_bound(used_.begin(), used_.end(), slot), slot);
     return *p;

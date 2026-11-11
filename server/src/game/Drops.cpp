@@ -3,6 +3,7 @@
 #include <cmath>
 
 #include "Math.h"
+#include "game/Diep.h"
 #include "game/Game.h"
 
 namespace game {
@@ -35,6 +36,10 @@ void Drops::dropLoot(Entity &e, Entity *by) {
     if (!o.loot) return;
     const Body src = *o.body;
     std::vector<uint8_t> loot = o.loot->petals;
+    Entity *cam = by ? entities_.cameraOf(by) : nullptr;
+    Entity *killer = cam ? world_.get(cam->camera->player) : nullptr;
+    bool flowerKill = killer && killer->has(C_FLOWER);
+    if (game_.tankMode && !flowerKill) loot.clear();
     size_t n = loot.size();
     for (size_t q = 0; q < n; q++) {
         uint8_t type = loot[q];
@@ -70,11 +75,12 @@ void Drops::dropLoot(Entity &e, Entity *by) {
         }
     }
     float xp = o.loot->xp;
-    if (!(xp > 0.0f) || !by) return;
-    Entity *cam = entities_.cameraOf(by);
-    if (!cam) return;
-    Entity *f = world_.get(cam->camera->player);
-    if (f && f->has(C_FLOWER)) game_.flowers.giveXp(*f, xp);
+    if (!(xp > 0.0f) || !cam) return;
+    if (game_.tankMode && !flowerKill) {
+        game_.tanks.giveScore(cam, xp * diep::kScorePerXp);
+        return;
+    }
+    if (flowerKill) game_.flowers.giveXp(*killer, xp);
 }
 
 // Petals on the ground flash for their last two seconds and then go. Until then, from half a

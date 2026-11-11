@@ -6,6 +6,8 @@
 #include <cstdlib>
 #include <unistd.h>
 
+#include "game/Draw.h"
+#include "game/DrawTank.h"
 #include "game/Ease.h"
 #include "game/Game.h"
 #include "game/Ui.h"
@@ -192,6 +194,7 @@ void GameUI::drawTitle(Context &c, double now) {
         // on a phone or tablet the box is taller and sits lower; with touch controls it has a play
         // button beside it
         float bh = game_.mobile ? 70.f : 50.f, bx = cx - 200, by = game_.mobile ? half : q + 200;
+        if (game_.tankServer()) drawPlayKind(c, now);
         outlinedText(c, "This pretty little flower is called...", cx, by - 16.8f, 20);
         if (touch) {
             c.lineWidth(6);
@@ -277,14 +280,20 @@ void GameUI::drawHud(Context &c, double now) {
     // the logo, the panels, the zone warning and the touch controls are drawn as one layer
     c.beginLayer();
     bool touch = game_.touchMode();
-    if (!touch) outlinedText(c, "florr.io", 15, 37.4f, 32, Color(0xffffff), Align::Left);
+    bool tanks = game_.tankMode();
+    // in tank mode the upgrade buttons take the top left, and the logo makes way
+    if (!touch && slotsFade_ < 1) {
+        c.globalAlpha(tanks ? 1 - slotsFade_ : 1.f);
+        outlinedText(c, "florr.io", 15, 37.4f, 32, Color(0xffffff), Align::Left);
+        c.globalAlpha(1);
+    }
     float dtr = frameTime(royaleLast_, now);
 
     // the panels show while the camera has a flower; once it is dead they slide away, the level
     // bar to the left, the minimap to the right and the inventory down
     Entity *me = sim_.flower();
-    if (me && me->flower && game_.screen != Screen::Title) {
-        int level = std::max(1, me->flower->level);
+    if (me && (me->flower || me->tank) && game_.screen != Screen::Title) {
+        int level = me->flower ? std::max(1, me->flower->level) : 1;
         // the bar eases toward the progress the server sends, which tops out just short of full
         float dtl = levelLast_ > 0 ? float(now - levelLast_) : 0.f;
         levelLast_ = now;
@@ -299,43 +308,46 @@ void GameUI::drawHud(Context &c, double now) {
         c.globalAlpha(1);
         c.save();
         c.translate(-hudSlide_, 0);
-        levelShown_ += (float(me->flower->xp) * .000015f - levelShown_) * ease(.8f, dtl);
-        float prog = std::min(1.f, std::max(0.f, levelShown_));
-        // name, level bar and the next slot unlock; with touch controls they go top left
-        float by = touch ? 65.f : Hu - 109.6f;
-        c.lineCap(cp6::Cap::Round);
-        c.strokeStyle(Color(0x333333));
-        c.lineWidth(40);
-        c.beginPath();
-        c.moveTo(0, by);
-        c.lineTo(300, by);
-        c.stroke();
-        float k = std::min(1.f, prog * 30);
-        if (k > 0) {
-            c.globalAlpha(k);
-            c.strokeStyle(Color(0xf5ff65));
-            c.lineWidth(34 * k);
+        if (me->flower) {
+            levelShown_ += (float(me->flower->xp) * .000015f - levelShown_) * ease(.8f, dtl);
+            float prog = std::min(1.f, std::max(0.f, levelShown_));
+            // name, level bar and the next slot unlock; with touch controls they go top left
+            float by = touch ? 65.f : Hu - 109.6f;
+            c.lineCap(cp6::Cap::Round);
+            c.strokeStyle(Color(0x333333));
+            c.lineWidth(40);
             c.beginPath();
             c.moveTo(0, by);
-            c.lineTo(prog * 300, by);
+            c.lineTo(300, by);
             c.stroke();
-            c.globalAlpha(1);
+            float k = std::min(1.f, prog * 30);
+            if (k > 0) {
+                c.globalAlpha(k);
+                c.strokeStyle(Color(0xf5ff65));
+                c.lineWidth(34 * k);
+                c.beginPath();
+                c.moveTo(0, by);
+                c.lineTo(prog * 300, by);
+                c.stroke();
+                c.globalAlpha(1);
+            }
+            c.lineCap(cp6::Cap::Butt);
+            outlinedText(c, game_.name.empty() ? "" : game_.name, 150, by - 38.2f, 24);
+            outlinedText(c, "Lvl " + std::to_string(level) + " Flower", 150, by, 16);
+            if (level < 45 && !touch)
+                outlinedText(c,
+                             "Extra petal slot at level " + std::to_string(level < 15   ? 15
+                                                                           : level < 30 ? 30
+                                                                                        : 45),
+                             150, Hu - 77.7f, 14);
         }
-        c.lineCap(cp6::Cap::Butt);
-        outlinedText(c, game_.name.empty() ? "" : game_.name, 150, by - 38.2f, 24);
-        outlinedText(c, "Lvl " + std::to_string(level) + " Flower", 150, by, 16);
-        if (level < 45 && !touch)
-            outlinedText(c,
-                         "Extra petal slot at level " + std::to_string(level < 15   ? 15
-                                                                       : level < 30 ? 30
-                                                                                    : 45),
-                         150, Hu - 77.7f, 14);
         c.restore();
-        c.save();
-        c.translate(0, hudSlide_);
-
-        inventory.draw(c, now, level, Wu, Hu);
-        c.restore();
+        if (me->flower) {
+            c.save();
+            c.translate(0, hudSlide_);
+            inventory.draw(c, now, level, Wu, Hu);
+            c.restore();
+        }
         c.save();
         c.translate(hudSlide_, 0);
 
@@ -376,6 +388,19 @@ void GameUI::drawHud(Context &c, double now) {
     c.globalAlpha(1);
     c.endLayer(HUD_ALPHA);
 
+    if (tanks) {
+        float dtt = frameTime(tankLast_, now);
+        if (game_.screen != Screen::Title || deadHud_) drawTankHud(c, now, dtt);
+        c.setTransform(u, 0, 0, u, 0, 0);
+        c.globalAlpha(1);
+        if (game_.screen != Screen::Title || deadHud_) drawLeaderboard(c, Wu);
+        drawRoyale(c, dtr);
+        drawTree(c, now);
+        drawUpgrades(c, now, dtt);
+        drawTankDeath(c, dtt);
+        c.resetTransform();
+        return;
+    }
     if (deadHud_) {
         c.globalAlpha(1);
         drawLeaderboard(c, Wu);
@@ -387,8 +412,10 @@ void GameUI::drawHud(Context &c, double now) {
     if (game_.screen != Screen::Title) drawLeaderboard(c, Wu);
     if (game_.screen != Screen::Title) drawRoyale(c, dtr);
     inventory.drawTooltips(c, now);
+    if (picker_ && game_.screen == Screen::Playing) drawPicker(c, now);
 
     c.resetTransform();
+    drawNotes(c, now);
 }
 
 // a box above the flower when it is left of the zone its level belongs to: past the level each zone
@@ -659,7 +686,7 @@ void GameUI::drawLeaderboard(Context &c, float Wu) {
             while (n > 0 && (uint8_t(nm[n]) & 0xc0) == 0x80) n--;
             nm.resize(n);
         }
-        if (nm.empty()) nm = "Unnamed Flower";
+        if (nm.empty()) nm = game_.tankServer() ? "Unnamed Tank" : "Unnamed Flower";
         std::string score = "- " + shortNumber(lbShown_[i]);
         // the name and the score read as one line centred on the bar
         c.font(13);
@@ -682,7 +709,9 @@ void GameUI::drawLeaderboard(Context &c, float Wu) {
     c.fill();
     c.stroke();
     int players = int(arena->players);
-    outlinedText(c, std::to_string(players) + (players == 1 ? " Flower" : " Flowers"), 100, 20, 18);
+    const char *kind =
+        game_.tankServer() ? (players == 1 ? " Tank" : " Tanks") : (players == 1 ? " Flower" : " Flowers");
+    outlinedText(c, std::to_string(players) + kind, 100, 20, 18);
     c.restore();
 }
 
@@ -698,6 +727,99 @@ bool GameUI::playButtonAt(float x, float y) const {
     int ia = int(hudH());
     float cx = hudW() * .5f, bh = game_.mobile ? 70.f : 50.f, by = game_.mobile ? float(ia / 2) : float(ia / 4) + 200;
     return inBox(x, y, cx + 210, by, cx + 210 + bh, by + bh);
+}
+
+namespace {
+constexpr int kPickCols = 10;
+constexpr float kPickCard = 56, kPickGap = 10, kPickPad = 20, kPickTitle = 36;
+}  // namespace
+
+int GameUI::pickerAt(float x, float y) const {
+    int rows = (kServerPetals - 2) / kPickCols + 1;
+    float w = kPickPad * 2 + kPickCols * kPickCard + (kPickCols - 1) * kPickGap;
+    float h = kPickPad * 2 + kPickTitle + rows * kPickCard + (rows - 1) * kPickGap;
+    float x0 = hudW() * .5f - w * .5f, y0 = 80;
+    if (!inBox(x, y, x0, y0, x0 + w, y0 + h)) return -1;
+    for (int t = 1; t < kServerPetals; t++) {
+        float cx = x0 + kPickPad + float((t - 1) % kPickCols) * (kPickCard + kPickGap);
+        float cy = y0 + kPickPad + kPickTitle + float((t - 1) / kPickCols) * (kPickCard + kPickGap);
+        if (inBox(x, y, cx, cy, cx + kPickCard, cy + kPickCard)) return t;
+    }
+    return 0;
+}
+
+void GameUI::drawPicker(Context &c, double now) {
+    int rows = (kServerPetals - 2) / kPickCols + 1;
+    float w = kPickPad * 2 + kPickCols * kPickCard + (kPickCols - 1) * kPickGap;
+    float h = kPickPad * 2 + kPickTitle + rows * kPickCard + (rows - 1) * kPickGap;
+    float x0 = hudW() * .5f - w * .5f, y0 = 80, u = hudScale();
+    int hover = pickerAt(game_.in.mx / u, game_.in.my / u);
+    c.save();
+    c.globalAlpha(.5f);
+    c.fillStyle(Color(0x000000));
+    roundRect(c, x0, y0, w, h, 8);
+    c.fill();
+    c.globalAlpha(1);
+    outlinedText(c, "Pick a petal (P to close)", x0 + w * .5f, y0 + kPickPad + 10, 20);
+    for (int t = 1; t < kServerPetals; t++) {
+        float cx = x0 + kPickPad + float((t - 1) % kPickCols) * (kPickCard + kPickGap) + kPickCard * .5f;
+        float cy = y0 + kPickPad + kPickTitle + float((t - 1) / kPickCols) * (kPickCard + kPickGap) + kPickCard * .5f;
+        card(c, cx, cy, kPickCard, t, now, 1);
+        if (t != hover) continue;
+        c.lineWidth(3);
+        c.strokeStyle(Color(0xffffff));
+        c.strokeRect(cx - kPickCard * .5f - 4, cy - kPickCard * .5f - 4, kPickCard + 8, kPickCard + 8);
+    }
+    c.restore();
+}
+
+// on a tank server, the choice of a tank or a flower, between the logo and the name box
+void GameUI::playKindBox(int kind, float &x, float &y, float &w, float &h) const {
+    int ia = int(hudH());
+    float cx = hudW() * .5f, q = float(ia / 4), by = game_.mobile ? float(ia / 2) : q + 200;
+    float top = q + (game_.mobile ? 60 : 80) * .5f + 6, bottom = by - 31;
+    h = std::min(44.f, bottom - top - 4);
+    w = 130;
+    y = (top + bottom - h) * .5f;
+    x = kind == 0 ? cx - 6 - w : cx + 6;
+}
+
+int GameUI::playKindAt(float x, float y) const {
+    if (boxAway() > .5f) return -1;
+    for (int kind = 0; kind < 2; kind++) {
+        float bx, by, w, h;
+        playKindBox(kind, bx, by, w, h);
+        if (inBox(x, y, bx, by, bx + w, by + h)) return kind;
+    }
+    return -1;
+}
+
+void GameUI::drawPlayKind(Context &c, double now) {
+    for (int kind = 0; kind < 2; kind++) {
+        float x, y, w, h;
+        playKindBox(kind, x, y, w, h);
+        uint32_t fill = (kind == 0) == game_.playTank ? 0x1dd129 : 0x999999;
+        c.lineWidth(5);
+        c.fillStyle(Color(fill));
+        c.strokeStyle(Color(darker(fill)));
+        roundRect(c, x, y, w, h, 6);
+        c.fill();
+        c.stroke();
+        float ix = x + h * .55f, iy = y + h * .5f;
+        if (kind == 0) {
+            drawTankIcon(c, 0, ix, iy, -.785f, h * .0045f, true);
+        } else {
+            c.save();
+            c.translate(ix, iy);
+            c.scale(h * .012f);
+            Look fl;
+            fl.time = now;
+            fl.ui = true;
+            drawFlower(c, 25, fl, 0, 0, 5, 0);
+            c.restore();
+        }
+        outlinedText(c, kind == 0 ? "Tank" : "Flower", x + h + (w - h) * .5f - 4, iy, 18);
+    }
 }
 
 // the browser's own dialog, since a phone keyboard only comes up for a text field

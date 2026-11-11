@@ -71,6 +71,35 @@ void writeFull(net::Writer &w, const Entity &e, bool yours) {
     if (e.death) w.bit(e.death->dead);
     if (e.size) w.f32(e.size->radius);
     if (e.status) w.u8(e.status->flags);
+    if (e.tank) {
+        const TankData &t = *e.tank;
+        w.u8(t.layout);
+        w.varint(t.fired);
+        for (uint16_t a : t.turrets.values) w.u16(a);
+        w.u16(t.spin);
+        w.u8(t.flags);
+        w.u8(t.alpha);
+        w.ref(t.team);
+        w.u8(t.color);
+        w.f32(t.score);
+    }
+    if (e.shot) {
+        w.u8(e.shot->kind);
+        w.ref(e.shot->team);
+        w.u8(e.shot->look);
+        w.u8(e.shot->color);
+        w.u8(e.shot->mob);
+    }
+    if (e.driver) {
+        const DriverData &d = *e.driver;
+        w.u8(d.tank);
+        w.u8(d.level);
+        w.f32(d.score);
+        for (int v : d.stats.values) w.u8(v);
+        w.u8(d.points);
+        w.f32(d.alive);
+        w.u8(d.deathTank);
+    }
     if (e.flower) {
         const FlowerData &f = *e.flower;
         w.u8(f.eyes);
@@ -151,20 +180,41 @@ static void writeField(net::Writer &w, const Entity &e, int id) {
         case F_COOLDOWNS: writeChanged(w, e.flower->cooldowns, varint); break;
         case F_LEVEL: w.u8(e.flower->level); break;
         case F_ZONE_TIMER: w.u8(e.flower->zoneTimer); break;
+        case F_TANK_LAYOUT: w.u8(e.tank->layout); break;
+        case F_TANK_FIRED: w.varint(e.tank->fired); break;
+        case F_TANK_TURRETS: writeChanged(w, e.tank->turrets, [&](uint16_t v) { w.u16(v); }); break;
+        case F_TANK_SPIN: w.u16(e.tank->spin); break;
+        case F_TANK_FLAGS: w.u8(e.tank->flags); break;
+        case F_TANK_ALPHA: w.u8(e.tank->alpha); break;
+        case F_TANK_TEAM: w.ref(e.tank->team); break;
+        case F_SHOT_KIND: w.u8(e.shot->kind); break;
+        case F_SHOT_TEAM: w.ref(e.shot->team); break;
+        case F_SHOT_LOOK: w.u8(e.shot->look); break;
+        case F_SHOT_COLOR: w.u8(e.shot->color); break;
+        case F_TANK_COLOR: w.u8(e.tank->color); break;
+        case F_TANK_SCORE: w.f32(e.tank->score); break;
+        case F_SHOT_MOB: w.u8(e.shot->mob); break;
+        case F_DRIVER_TANK: w.u8(e.driver->tank); break;
+        case F_DRIVER_LEVEL: w.u8(e.driver->level); break;
+        case F_DRIVER_SCORE: w.f32(e.driver->score); break;
+        case F_DRIVER_STATS: writeChanged(w, e.driver->stats, u8); break;
+        case F_DRIVER_POINTS: w.u8(e.driver->points); break;
+        case F_DRIVER_ALIVE: w.f32(e.driver->alive); break;
+        case F_DRIVER_DEATH_TANK: w.u8(e.driver->deathTank); break;
         default: break;
     }
 }
 
 // what this client gets told of what changed
-static uint64_t changesFor(const Entity &e, bool yours) {
+static FieldMask changesFor(const Entity &e, bool yours) {
     return yours ? e.changed : e.changed & ~kPrivateFields;
 }
 
 // the fields in id order: (id step ^ 1) then the field, and 1 to end
 void writeDelta(net::Writer &w, const Entity &e, bool yours) {
-    uint64_t changes = changesFor(e, yours);
+    FieldMask changes = changesFor(e, yours);
     int last = 0;
-    for (int id = 1; id < 64; id++) {
+    for (int id = 1; id < 128; id++) {
         if (!(changes >> id & 1)) continue;
         w.varint(uint32_t(id - last) ^ 1);
         last = id;
@@ -173,13 +223,17 @@ void writeDelta(net::Writer &w, const Entity &e, bool yours) {
     w.varint(1);
 }
 
-static void comps(net::Writer &w, uint32_t mask) {
-    if (__builtin_popcount(mask) >= 4) {
-        w.u32(mask);
+// a component mask: four or more components all below 32 as the mask itself, otherwise each one
+static bool maskAsBits(uint64_t mask) {
+    return __builtin_popcountll(mask) >= 4 && !(mask >> 32);
+}
+static void comps(net::Writer &w, uint64_t mask) {
+    if (maskAsBits(mask)) {
+        w.u32(uint32_t(mask));
         return;
     }
     int last = 0;
-    for (int c = 0; c < 32; c++) {
+    for (int c = 0; c < 64; c++) {
         if (!(mask >> c & 1)) continue;
         w.varint(uint32_t(c + 1 - last) ^ 1);
         last = c + 1;
@@ -222,10 +276,10 @@ void View::write(net::Writer &w, const World &world, const std::vector<uint32_t>
         bool mine = yours(*e);
         uint8_t own = mine ? 0x40 : 0;
         if (!contains(known_, id)) {
-            uint32_t mask = e->comps & kWireComps;
+            uint64_t mask = e->comps & kWireComps;
             w.ref(id);
             // create, full state; 0x80: made this tick or the last; 0x01: components as a bit mask
-            w.u8((0x08 | own | (e->age <= 1 ? 0x80 : 0) | (__builtin_popcount(mask) >= 4 ? 0x01 : 0)) ^ 0x36);
+            w.u8((0x08 | own | (e->age <= 1 ? 0x80 : 0) | (maskAsBits(mask) ? 0x01 : 0)) ^ 0x36);
             comps(w, mask);
             writeFull(w, *e, mine);
         } else if (changesFor(*e, mine)) {

@@ -1,13 +1,16 @@
 #include "game/GameRendering.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <tuple>
 #include <vector>
 
+#include "game/DrawTank.h"
 #include "game/Ease.h"
 #include "game/Game.h"
 #include "game/Ui.h"
+#include "TankData.h"
 
 using namespace protocol;
 
@@ -23,6 +26,18 @@ GameRendering::GameRendering(Game &game) : game_(game), sim_(game.simulation), c
 void GameRendering::smooth(Entity &e, float dt, double now) {
     float tx = e.position ? e.position->x : 0, ty = e.position ? e.position->y : 0;
     float ta = e.position ? e.position->angle : 0, tr = e.size ? e.size->radius : 0;
+    if (e.tank) {
+        sim::TankData &t = *e.tank;
+        auto glide = [&](sim::Lerp &g, float v) {
+            g.angle = true;
+            if (e.placed)
+                g.set(v, now);
+            else
+                g.snap(v, now);
+        };
+        for (size_t i = 0; i < t.turrets.size(); i++) glide(t.turretGlide[i], t.turrets[i]);
+        glide(t.spinGlide, t.spin);
+    }
     if (!e.placed) {
         e.lerpX.snap(tx, now);
         e.lerpY.snap(ty, now);
@@ -78,6 +93,13 @@ void GameRendering::smooth(Entity &e, float dt, double now) {
         f.lookY += (std::sin(eyes) - f.lookY) * k8;
         f.nameAlpha += ((dead ? 0.f : 1.f) - f.nameAlpha) * ease(.7f, dt);
     }
+    if (e.tank && !e.shot) {
+        sim::TankData &t = *e.tank;
+        if (e.hp() < e.maxHp())
+            t.bar = std::min(1.f, t.bar + dt / 50);
+        else
+            t.bar = std::max(0.f, t.bar - dt / 300);
+    }
     if (e.drop) {
         float target = e.drop->goingAway() ? 0.f : 1.f;
         e.drop->appear += (target - e.drop->appear) * ease(0.8f, dt);
@@ -118,7 +140,7 @@ void GameRendering::updateCamera(sim::CameraData *cam, Entity *p, float dt, doub
     if (p) {
         float bx = p->x, by = p->y;
         place(bx, by);
-        if (game_.screen == Screen::Playing && !game_.touchMode()) {
+        if (game_.screen == Screen::Playing && !game_.touchMode() && !game_.tankMode()) {
             float a = 0, z = 0;
             if (game_.settings.keyboardControl) {
                 float dx = float(game_.in.rightKey) - float(game_.in.leftKey),
@@ -220,6 +242,79 @@ void GameRendering::drawEntity(Context &c, Entity &e, double now, float alpha, f
     c.restore();
 }
 
+// diep's way out: each tick for five ticks it grows by a tenth and fades by a sixth
+float GameRendering::deathAlpha(const Entity &e, double now) const {
+    if (e.deadAt < 0) return 1;
+    float t = float(now - e.deadAt) / 40.f;
+    return std::max(0.f, t < 1 ? 1 - t * 2 / 6 : (5 - t) / 6);
+}
+
+// a tank, a boss or a shot
+void GameRendering::drawDiep(Context &c, Entity &e, double now) {
+    float alpha = deathAlpha(e, now);
+    if (alpha <= 0) return;
+    float grow = e.deadAt < 0 ? 1.f : std::pow(1.1f, std::min(5.f, float(now - e.deadAt) / 40.f));
+    if (e.mob) {
+        c.save();
+        c.recolor(tankColor(COLOR_SQUARE, false), 1);
+        drawEntity(c, e, now, alpha, grow);
+        c.restore();
+        return;
+    }
+    TankPaint p;
+    std::array<float, 8> turrets{};
+    p.now = now;
+    p.ticks = now / 40;
+    p.angle = e.angle;
+    p.flash = std::clamp((120 - float(now - e.hurtAt)) / 120, 0.f, 1.f);
+    uint32_t team = e.shot ? e.shot->team : e.tank->team;
+    int color = e.shot ? e.shot->color : e.tank->color;
+    p.fill = tankColor(color, team && team == sim_.cameraId);
+    if (e.tank) {
+        sim::TankData &t = *e.tank;
+        if (!t.firedSeen) {
+            t.seenFired = t.fired;
+            t.firedSeen = true;
+        }
+        uint32_t flip = t.fired ^ t.seenFired;
+        for (int i = 0; i < 24; i++)
+            if (flip >> i & 1) t.kickAt[i] = now;
+        t.seenFired = t.fired;
+        p.kickAt = t.kickAt.data();
+        for (size_t i = 0; i < turrets.size(); i++) turrets[i] = t.turretGlide[i].at(now);
+        p.turrets = turrets.data();
+        p.spin = t.spinGlide.at(now);
+        p.blink = t.spawning() && (long((now - e.born) / 100) & 1);
+        alpha *= t.alpha / 255.f;
+        sim::CameraData *cam = sim_.camera();
+        bool mine = cam && cam->player == e.id && !e.shot;
+        if (mine && e.deadAt < 0 && game_.screen == Screen::Playing) p.angle = game_.tankAngle;
+        if (mine) {
+            Entity *ce = sim_.get(sim_.cameraId);
+            if (ce && ce->driver) p.reload = 15 * std::pow(.914f, float(ce->driver->stats[tankdata::S_RELOAD]));
+        } else if (t.layout >= tankdata::L_GUARDIAN) {
+            p.reload = 15 * std::pow(.914f, 7.f);
+        } else if (t.layout == tankdata::L_MINION || t.layout == tankdata::L_ROCKET) {
+            p.reload = 1;
+        }
+    }
+    if (alpha <= 0) return;
+    const tankdata::TankDef *def = e.tank ? tankdata::layout(e.tank->layout) : nullptr;
+    bool layer = alpha < 1 && def;
+    c.save();
+    c.translate(e.x, e.y);
+    if (layer)
+        c.beginLayer();
+    else
+        c.globalAlpha(alpha);
+    if (def)
+        drawTank(c, e.tank->layout, e.r * grow / def->baseSize, p);
+    else
+        drawShot(c, e.shot->look, e.shot->kind == tankdata::B_TRAP, e.r * grow, p);
+    if (layer) c.endLayer(alpha);
+    c.restore();
+}
+
 void GameRendering::drawWorld(Context &c, double now, float dt) {
     float W = float(c.width()), H = float(c.height());
     float s = worldScale();
@@ -286,7 +381,8 @@ void GameRendering::drawWorld(Context &c, double now, float dt) {
         if (kv.second.has(C_POSITION) && kv.second.placed) list.push_back(&kv.second);
     std::sort(list.begin(), list.end(), [](Entity *a, Entity *b) {
         auto key = [](const Entity *e) {
-            return std::make_tuple(e->has(C_FLOWER), e->has(C_MOVES), e->has(C_PETAL), !e->has(C_DROP));
+            return std::make_tuple(e->has(C_TANK) && !e->has(C_SHOT), e->has(C_SHOT), e->has(C_FLOWER), e->has(C_MOVES),
+                                   e->has(C_PETAL), !e->has(C_DROP));
         };
         auto ka = key(a), kb = key(b);
         return ka != kb ? ka < kb : (a->id & 16383) < (b->id & 16383);
@@ -365,10 +461,35 @@ void GameRendering::drawWorld(Context &c, double now, float dt) {
         // mobs count as seen once drawn within 900 units of a living flower
         if (e->mob && viewer && viewer->hp() > 0 && std::hypot(e->x - viewer->x, e->y - viewer->y) < 900)
             game_.ui.menus.discoverMob(e->mob->type);
+        reset();
+        if (e->tank || e->shot) {
+            drawDiep(c, *e, now);
+            continue;
+        }
         float t = fade(e);
         if (t >= 1) continue;
-        reset();
         drawEntity(c, *e, now, 1 - t, 1 + t);
+    }
+    // tanks' names, then their health bars
+    sim::CameraData *cam = sim_.camera();
+    uint32_t mine = cam ? cam->player : 0;
+    for (Entity *e : list) {
+        if (!e->tank || e->shot || !e->name || e->name->name.empty() || e->id == mine) continue;
+        sim::TankData &t = *e->tank;
+        t.nameFade += ((onScreen(e) ? 1.f : 0.f) - t.nameFade) * ease(onScreen(e) ? .8f : .9f, dt);
+        float a = t.alpha / 255.f * deathAlpha(*e, now) * t.nameFade;
+        if (a < .01f) continue;
+        const tankdata::TankDef *def = tankdata::layout(t.layout);
+        reset();
+        drawTankName(c, e->name->name, t.score, e->x, e->y, e->r, def ? def->sides : 1, a);
+    }
+    for (Entity *e : list) {
+        if (!e->tank || e->shot || !e->health || !onScreen(e)) continue;
+        sim::TankData &t = *e->tank;
+        float a = (e->id == mine ? 1.f : t.alpha / 255.f * deathAlpha(*e, now)) * t.bar;
+        if (a < .01f) continue;
+        reset();
+        drawTankBar(c, e->x, e->y, e->r, e->maxHp() > 0 ? e->hp() / e->maxHp() : 0, a);
     }
     c.globalAlpha(1);
     c.resetTransform();

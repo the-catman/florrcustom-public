@@ -17,14 +17,17 @@ namespace world {
 using namespace protocol;
 
 // a component's bit in Entity::comps
-constexpr uint32_t bit(int c) { return 1u << c; }
+constexpr uint64_t bit(int c) { return 1ull << c; }
+
+// one bit per field, by wire id
+using FieldMask = unsigned __int128;
 
 // A field's bit in the changed mask is its id on the wire.
 constexpr int wireId(int field) {
     return field == kFirstField ? 1 : field;
 }
 // the flower's fields only its owner is told
-constexpr uint64_t kPrivateFields = 0x3full << F_XP;
+constexpr FieldMask kPrivateFields = FieldMask(0x3f) << F_XP;
 
 inline uint16_t angleU16(double a) {
     if (a < 0) a += TAU;
@@ -62,7 +65,7 @@ struct WireList {
 
 class FieldGroup {
 public:
-    explicit FieldGroup(uint64_t *changed) : changed_(changed) {}
+    explicit FieldGroup(FieldMask *changed) : changed_(changed) {}
 
 protected:
     template <class T>
@@ -80,9 +83,9 @@ protected:
     }
 
 private:
-    void mark(int field) { *changed_ |= 1ull << wireId(field); }
+    void mark(int field) { *changed_ |= FieldMask(1) << wireId(field); }
 
-    uint64_t *changed_;
+    FieldMask *changed_;
 };
 
 struct DropData : FieldGroup {
@@ -264,10 +267,67 @@ struct FlowerData : FieldGroup {
     void setZoneTimer(int v) { change(F_ZONE_TIMER, zoneTimer, v); }
 };
 
+struct TankData : FieldGroup {
+    using FieldGroup::FieldGroup;
+    int layout = 0;
+    uint32_t fired = 0;
+    WireList<uint16_t, 8> turrets;
+    uint16_t spin = 0;
+    int flags = 0;  // bit 0: just spawned
+    int alpha = 255;
+    uint32_t team = 0;
+    int color = 0;
+    float score = 0;
+
+    void setLayout(int v) { change(F_TANK_LAYOUT, layout, v); }
+    void setFired(uint32_t v) { change(F_TANK_FIRED, fired, v); }
+    void setTurret(int i, double radians) { changeAt(F_TANK_TURRETS, turrets, i, angleU16(radians)); }
+    void setSpin(double radians) { change(F_TANK_SPIN, spin, angleU16(radians)); }
+    void setFlags(int v) { change(F_TANK_FLAGS, flags, v); }
+    void setAlpha(int v) { change(F_TANK_ALPHA, alpha, v); }
+    void setTeam(uint32_t v) { change(F_TANK_TEAM, team, v); }
+    void setColor(int v) { change(F_TANK_COLOR, color, v); }
+    void setScore(float v) { change(F_TANK_SCORE, score, v); }
+};
+
+struct ShotData : FieldGroup {
+    using FieldGroup::FieldGroup;
+    int kind = 0;
+    uint32_t team = 0;
+    int look = 0;
+    int color = 0;
+    int mob = 0;
+
+    void setKind(int v) { change(F_SHOT_KIND, kind, v); }
+    void setTeam(uint32_t v) { change(F_SHOT_TEAM, team, v); }
+    void setLook(int v) { change(F_SHOT_LOOK, look, v); }
+    void setColor(int v) { change(F_SHOT_COLOR, color, v); }
+    void setMob(int v) { change(F_SHOT_MOB, mob, v); }
+};
+
+struct DriverData : FieldGroup {
+    using FieldGroup::FieldGroup;
+    int tank = 0;
+    int level = 0;
+    float score = 0;
+    WireList<int, 8> stats;
+    int points = 0;
+    float alive = 0;
+    int deathTank = 0;
+
+    void setTank(int v) { change(F_DRIVER_TANK, tank, v); }
+    void setLevel(int v) { change(F_DRIVER_LEVEL, level, v); }
+    void setScore(float v) { change(F_DRIVER_SCORE, score, v); }
+    void setStat(int i, int v) { changeAt(F_DRIVER_STATS, stats, i, v); }
+    void setPoints(int v) { change(F_DRIVER_POINTS, points, v); }
+    void setAlive(float v) { change(F_DRIVER_ALIVE, alive, v); }
+    void setDeathTank(int v) { change(F_DRIVER_DEATH_TANK, deathTank, v); }
+};
+
 struct Entity {
-    uint32_t id = 0;       // slot | generation << 14
-    uint32_t comps = 0;    // one bit per component
-    uint64_t changed = 0;  // fields changed since the last update went out, by wire id
+    uint32_t id = 0;        // slot | generation << 14
+    uint64_t comps = 0;     // one bit per component
+    FieldMask changed = 0;  // fields changed since the last update went out, by wire id
     uint8_t age = 0;       // ticks since it was made, counting up to 2
 
     std::optional<DropData> drop;
@@ -287,12 +347,17 @@ struct Entity {
     std::optional<SizeData> size;
     std::optional<StatusData> status;
     std::unique_ptr<FlowerData> flower;
+    std::optional<TankData> tank;
+    std::optional<ShotData> shot;
+    std::unique_ptr<DriverData> driver;
 
     Entity() = default;
     Entity(const Entity &) = delete;
     Entity &operator=(const Entity &) = delete;
 
     bool has(int c) const { return comps >> c & 1; }
+    // a player's body: a flower, or a tank with a camera behind it
+    bool isPlayer() const { return has(C_FLOWER) || (has(C_TANK) && !has(C_SHOT) && tank->team); }
     uint16_t slot() const { return uint16_t(id & 16383); }
 
     // what it reads as without the component: nothing

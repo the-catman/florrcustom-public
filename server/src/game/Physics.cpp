@@ -4,6 +4,7 @@
 #include <cmath>
 
 #include "Math.h"
+#include "game/Diep.h"
 #include "game/Game.h"
 
 namespace game {
@@ -19,15 +20,17 @@ static bool dead(const Entity &e) {
 
 Physics::Physics(Game &game) : System(game) {}
 
-// velocity decays with a 125 ms time constant; positions move by the exact integral of that and
-// stay inside the map
+// velocity decays with a 125 ms time constant, or a tank's or a shot's by 0.9 every 40 ms like
+// diep's; positions move by the exact integral of that and stay inside the map
 void Physics::integrate(double dt) {
     constexpr double reach = 1 / (1 - 0.992);
-    double k = std::pow(0.992, dt), m = reach - k * reach;
+    double fk = std::pow(0.992, dt), fm = reach - fk * reach;
+    double dk = std::pow(diep::decay(), dt), dm = (1 - dk) / (1 - diep::decay());
     for (uint16_t s : world_.slots()) {
         Obj &o = entities_.objs[s];
         if (!o.body) continue;
         Body &b = *o.body;
+        double k = b.diep ? dk : fk, m = b.diep ? dm : fm;
         Entity &e = *world_.at(s);
         float turn = float(dt * 0.001 * double(float(b.spin)));
         if (!(std::fabs(turn) < FLOAT_EPSILON))
@@ -125,6 +128,10 @@ bool Physics::collidePair(Entity &e, Entity &other) {
     Body &sb = *so.body, &ob = *oo.body;
     float dx = sb.x - ob.x, dy = sb.y - ob.y, rr = oh.radius + sh.radius;
     if (!(dx * dx + dy * dy < rr * rr)) return false;
+    if (so.contact || oo.contact) {
+        game_.tanks.collide(e, other);
+        return dead(e);
+    }
     bool same = entities_.root(e.id) == entities_.root(other.id);
     if ((!same || (sh.hitsTeam && oh.hitsTeam)) && !sh.still && !oh.still) {
         double svx = sb.vx + sb.ax, svy = sb.vy + sb.ay, ovx = ob.vx + ob.ax, ovy = ob.vy + ob.ay;

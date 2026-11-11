@@ -238,6 +238,23 @@ void Context::endLayer(float alpha) {
     lastFill_ = -1;
 }
 
+// c in the recolour's hue and saturation at its own lightness (HSL): black stays black and
+// white stays white
+Color Context::recolored(Color c) const {
+    auto lightness = [](Color x) { return (std::max({x.r, x.g, x.b}) + std::min({x.r, x.g, x.b})) / 510.f; };
+    Color to(s_.recolor);
+    float l = lightness(c), lt = lightness(to);
+    float roomT = 1 - std::fabs(2 * lt - 1), k = roomT > 0 ? (1 - std::fabs(2 * l - 1)) / roomT : 0;
+    auto at = [&](uint8_t v) { return uint8_t(std::clamp((l + (v / 255.f - lt) * k) * 255.f + .5f, 0.f, 255.f)); };
+    Color o;
+    o.r = at(to.r);
+    o.g = at(to.g);
+    o.b = at(to.b);
+    o = Color::lerp(c, o, s_.recolorK);
+    o.a = c.a;
+    return o;
+}
+
 void Context::save() {
     stack_.push_back(s_);
 }

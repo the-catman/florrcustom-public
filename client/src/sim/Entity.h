@@ -163,9 +163,52 @@ struct FlowerData {
     bool antennae() const { return face & 4; }
 };
 
+// a diep tank, a boss, or a shot with barrels of its own
+struct TankData {
+    int layout = 0;
+    uint32_t fired = 0;  // a bit per barrel that flips when it fires; turrets from bit 16
+    std::array<float, 8> turrets{};
+    float spin = 0;  // how far the ring of turrets has turned
+    int flags = 0;
+    int alpha = 255;
+    uint32_t team = 0;
+    int color = 0;
+    float score = 0;
+
+    std::array<Lerp, 8> turretGlide;  // the turrets and the ring as drawn
+    Lerp spinGlide;
+    uint32_t seenFired = 0;
+    bool firedSeen = false;
+    std::array<double, 24> kickAt{};  // when each barrel last fired, ms
+    float bar = 0;                    // how far its health bar has faded in
+    float nameFade = 0;
+
+    bool spawning() const { return flags & 1; }
+};
+
+// something a tank fired
+struct ShotData {
+    int kind = 0;
+    uint32_t team = 0;
+    int look = 1;  // sides
+    int color = 0;
+    int mob = 0;  // a claimed mob's type plus one
+};
+
+// the player's own tank: on the camera
+struct DriverData {
+    int tank = 0;
+    int level = 0;
+    float score = 0;
+    std::array<int, 8> stats{};
+    int points = 0;
+    float alive = 0;
+    int deathTank = 0;
+};
+
 struct Entity {
     uint32_t id = 0;     // slot | generation << 14
-    uint32_t comps = 0;  // one bit per component
+    uint64_t comps = 0;  // one bit per component
 
     std::optional<DropData> drop;
     std::optional<MovesData> moves;
@@ -186,6 +229,9 @@ struct Entity {
     std::optional<StatusData> status;
     std::optional<WebData> web;
     std::optional<FlowerData> flower;
+    std::optional<TankData> tank;
+    std::optional<ShotData> shot;
+    std::optional<DriverData> driver;
 
     // gliding toward what the server says
     float x = 0;

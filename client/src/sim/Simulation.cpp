@@ -67,19 +67,31 @@ void addComponents(Entity &e) {
     if (e.has(C_STATUS)) e.status.emplace();
     if (e.has(C_WEB)) e.web.emplace();
     if (e.has(C_FLOWER)) e.flower.emplace();
+    if (e.has(C_TANK)) e.tank.emplace();
+    if (e.has(C_SHOT)) e.shot.emplace();
+    if (e.has(C_DRIVER)) e.driver.emplace();
 }
 
-uint32_t readComponents(net::Reader &r, uint32_t op) {
+uint64_t readComponents(net::Reader &r, uint32_t op) {
     if (op & kOpComponentBits) return r.u32();
-    uint32_t comps = 0;
+    uint64_t comps = 0;
     int i = 0;
     while (!r.bad()) {
         uint32_t step = r.varint() ^ 1;
         if (!step) break;
         i += step;
-        comps |= 1u << (i - 1);
+        if (i - 1 < 64) comps |= 1ull << (i - 1);
     }
     return comps;
+}
+
+// a Necromancer's drone made from a mob is drawn as that mob
+void claimedMob(Entity &e, int mob) {
+    need(e.shot).mob = mob;
+    if (mob)
+        need(e.mob).type = mob - 1;
+    else if (!e.has(C_MOB))
+        e.mob.reset();
 }
 
 // nothing here uses these; they are read to stay in step with what follows
@@ -154,7 +166,7 @@ bool Simulation::decodeUpdate(net::Reader &r, double now) {
             }
             e = &it->second;
         } else {
-            uint32_t comps = readComponents(r, op);
+            uint64_t comps = readComponents(r, op);
             e = &entities[slot];
             *e = Entity();
             e->id = id;
@@ -237,6 +249,35 @@ void Simulation::decodeFull(net::Reader &r, Entity &e, bool yours) {
     if (e.size) e.size->radius = r.f32();
     if (e.has(C_EVENT)) skipEventFull(r);
     if (e.status) e.status->flags = r.u8();
+    if (e.tank) {
+        TankData &t = *e.tank;
+        t.layout = r.u8();
+        t.fired = r.varint();
+        for (float &a : t.turrets) a = readAngle(r);
+        t.spin = readAngle(r);
+        t.flags = r.u8();
+        t.alpha = r.u8();
+        t.team = r.ref();
+        t.color = r.u8();
+        t.score = r.f32();
+    }
+    if (e.shot) {
+        e.shot->kind = r.u8();
+        e.shot->team = r.ref();
+        e.shot->look = r.u8();
+        e.shot->color = r.u8();
+        claimedMob(e, r.u8());
+    }
+    if (e.driver) {
+        DriverData &d = *e.driver;
+        d.tank = r.u8();
+        d.level = r.u8();
+        d.score = r.f32();
+        for (int &s : d.stats) s = r.u8();
+        d.points = r.u8();
+        d.alive = r.f32();
+        d.deathTank = r.u8();
+    }
     if (e.flower) {
         FlowerData &f = *e.flower;
         f.eyes = r.u8();
@@ -349,6 +390,35 @@ void Simulation::decodeDelta(net::Reader &r, Entity &e) {
             }
             case F_LEVEL: need(e.flower).level = r.u8(); break;
             case F_ZONE_TIMER: need(e.flower).zoneTimer = r.u8(); break;
+            case F_TANK_LAYOUT: need(e.tank).layout = r.u8(); break;
+            case F_TANK_FIRED: need(e.tank).fired = r.varint(); break;
+            case F_TANK_TURRETS: {
+                TankData &t = need(e.tank);
+                readChanged(r, t.turrets, t.turrets.size(), [&] { return readAngle(r); });
+                break;
+            }
+            case F_TANK_SPIN: need(e.tank).spin = readAngle(r); break;
+            case F_TANK_FLAGS: need(e.tank).flags = r.u8(); break;
+            case F_TANK_ALPHA: need(e.tank).alpha = r.u8(); break;
+            case F_TANK_TEAM: need(e.tank).team = r.ref(); break;
+            case F_TANK_COLOR: need(e.tank).color = r.u8(); break;
+            case F_TANK_SCORE: need(e.tank).score = r.f32(); break;
+            case F_SHOT_KIND: need(e.shot).kind = r.u8(); break;
+            case F_SHOT_TEAM: need(e.shot).team = r.ref(); break;
+            case F_SHOT_LOOK: need(e.shot).look = r.u8(); break;
+            case F_SHOT_COLOR: need(e.shot).color = r.u8(); break;
+            case F_SHOT_MOB: claimedMob(e, r.u8()); break;
+            case F_DRIVER_TANK: need(e.driver).tank = r.u8(); break;
+            case F_DRIVER_LEVEL: need(e.driver).level = r.u8(); break;
+            case F_DRIVER_SCORE: need(e.driver).score = r.f32(); break;
+            case F_DRIVER_STATS: {
+                DriverData &d = need(e.driver);
+                readChanged(r, d.stats, d.stats.size(), [&] { return int(r.u8()); });
+                break;
+            }
+            case F_DRIVER_POINTS: need(e.driver).points = r.u8(); break;
+            case F_DRIVER_ALIVE: need(e.driver).alive = r.f32(); break;
+            case F_DRIVER_DEATH_TANK: need(e.driver).deathTank = r.u8(); break;
             default: need(e.camera).respawnLevel = r.u8(); break;  // id 1
         }
     }

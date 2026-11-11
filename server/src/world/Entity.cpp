@@ -4,7 +4,7 @@ namespace world {
 
 void Entity::add(int c) {
     if (has(c)) return;
-    comps |= 1u << c;
+    comps |= 1ull << c;
     switch (c) {
         case C_DROP: drop.emplace(&changed); break;
         case C_MOVES: moves.emplace(&changed); break;
@@ -23,6 +23,9 @@ void Entity::add(int c) {
         case C_SIZE: size.emplace(&changed); break;
         case C_STATUS: status.emplace(&changed); break;
         case C_FLOWER: flower = std::make_unique<FlowerData>(&changed); break;
+        case C_TANK: tank.emplace(&changed); break;
+        case C_SHOT: shot.emplace(&changed); break;
+        case C_DRIVER: driver = std::make_unique<DriverData>(&changed); break;
         default: break;  // nothing but the fact that it has it
     }
 }
@@ -39,6 +42,8 @@ void Entity::clean() {
         flower->slots.changed = 0;
         flower->cooldowns.changed = 0;
     }
+    if (tank) tank->turrets.changed = 0;
+    if (driver) driver->stats.changed = 0;
     if (age < 2) age++;
 }
 

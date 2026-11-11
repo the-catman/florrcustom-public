@@ -36,7 +36,7 @@ MobAi::MobAi(Game &game) : System(game) {}
 void MobAi::provoke(Entity &e, Entity *by) {
     if (!by || !entities_.cameraOf(by)) return;
     Entity *ag = by;
-    while (ag && !ag->has(C_FLOWER) && !ag->has(C_MOVES))
+    while (ag && !ag->isPlayer() && !ag->has(C_MOVES))
         ag = ag->has(C_OWNED) ? world_.get(entities_.obj(*ag).owner) : nullptr;
     if (!ag) return;
     Obj &o = entities_.obj(e);
@@ -292,7 +292,7 @@ uint32_t MobAi::findTarget(Entity &e, Ai &ai, float minX) {
         Entity &d = *world_.at(slot);
         if (!o.body) return false;
         if (double(o.body->x) < double(minX)) return false;
-        bool flower = d.has(C_FLOWER), moves = d.has(C_MOVES);
+        bool flower = d.isPlayer(), moves = d.has(C_MOVES);
         if (!flower && !moves) return false;
         if (d.has(C_HEALTH) && !(d.hp() > 0.0f)) return false;
         if (flower) {
@@ -303,7 +303,7 @@ uint32_t MobAi::findTarget(Entity &e, Ai &ai, float minX) {
         double n = dx * dx + dy * dy;
         if (!(n < double(sight) * double(sight))) return false;
         if (best) {
-            bool bFlower = best->has(C_FLOWER), bMoves = best->has(C_MOVES);
+            bool bFlower = best->isPlayer(), bMoves = best->has(C_MOVES);
             bool outranks;
             if (flower && !bFlower)
                 outranks = true;

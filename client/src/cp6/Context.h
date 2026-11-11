@@ -71,6 +71,8 @@ struct State {
     Matrix m;
     Color fill{0x000000}, stroke{0x000000};
     float lineWidth = 1, alpha = 1;
+    uint32_t recolor = 0;  // fills and strokes set take this colour, as light as they were
+    float recolorK = 0;    // how far, 0 not at all
     Cap cap = Cap::Butt;
     float fontSize = 10;
     Align align = Align::Left;
@@ -103,8 +105,12 @@ public:
 
     void globalAlpha(float a) { s_.alpha = a; }
     float globalAlpha() const { return s_.alpha; }
-    void fillStyle(Color c) { s_.fill = c; }
-    void strokeStyle(Color c) { s_.stroke = c; }
+    void fillStyle(Color c) { s_.fill = s_.recolorK > 0 ? recolored(c) : c; }
+    void strokeStyle(Color c) { s_.stroke = s_.recolorK > 0 ? recolored(c) : c; }
+    void recolor(uint32_t rgb, float k) {
+        s_.recolor = rgb;
+        s_.recolorK = k;
+    }
     void lineWidth(float w) { s_.lineWidth = w; }
     void lineCap(Cap c) { s_.cap = c; }
     void font(float size) { s_.fontSize = size; }
@@ -151,6 +157,7 @@ public:
     void endLayer(float alpha);
 
 private:
+    Color recolored(Color c) const;
     struct Inst {
         float e, f, a, b;
         float c, d, lx, ly;

@@ -49,7 +49,8 @@ void TouchControls::onTouch(int phase, int id, float x, float y) {
                 t.role = R_BUTTON;
             else if (onBoard && game_.simulation.arena())
                 t.role = R_BOARD;
-            else if (game_.ui.inventory.slotAt(x, y) >= 0 && !game_.ui.inventory.dragging()) {
+            else if ((game_.tankMode() && game_.ui.overTankHud(x, y)) ||
+                     (game_.ui.inventory.slotAt(x, y) >= 0 && !game_.ui.inventory.dragging())) {
                 t.role = R_SLOT;
                 game_.in.mx = x;
                 game_.in.my = y;
@@ -110,7 +111,7 @@ void TouchControls::update(double now) {
     }
     float u = game_.ui.hudScale(), Wu = game_.ui.hudW(), ia = game_.ui.hudH();
     Entity *me = game_.simulation.get(game_.player);
-    bool alive = me && me->flower && game_.screen == Screen::Playing;
+    bool alive = me && (me->flower || me->tank) && game_.screen == Screen::Playing;
     touchAlpha_ += ((alive ? 1.f : 0.f) - touchAlpha_) * ease(.7f, dt);
     boardK_ += ((boardOpen_ ? 1.f : 0.f) - boardK_) * ease(.8f, dt);
     // attack and defend are held while a finger that started on a button is over it

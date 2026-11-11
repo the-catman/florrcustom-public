@@ -17,7 +17,7 @@ class World {
 public:
     World();
 
-    Entity &create(uint32_t comps);
+    Entity &create(uint64_t comps);
     Entity *get(uint32_t id) const;
     Entity *at(uint16_t slot) const { return ents_[slot].get(); }
     void destroy(uint32_t id);

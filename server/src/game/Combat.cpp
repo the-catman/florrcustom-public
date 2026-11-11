@@ -16,6 +16,7 @@ void Combat::damage(Entity &e, Entity *by, float amount, uint16_t flags) {
     bool counts = !by || game_.arena.running();
     float dealt = counts ? amount : 0.0f;
     float left = hp - dealt;
+    if (TankState *ts = entities_.obj(e).tank.get()) ts->lastHit = game_.now;
     e.health->setHealth(left);
     if (left < 0.0f) e.health->setHealth(0.0f);
     uint8_t quiet = counts ? uint8_t(flags & 255) : 1;
@@ -55,6 +56,8 @@ void Combat::damage(Entity &e, Entity *by, float amount, uint16_t flags) {
         if (e.has(C_FLOWER)) game_.flowers.onDeath(e);
         game_.drops.dropLoot(e, by);
     }
+    if (o.tank || o.shot) game_.tanks.onDeath(e, by);
+    if (game_.tankMode && o.mob) game_.tanks.onKill(e, by);
     game_.mobs.detachSegments(e);
     game_.mobAi.provoke(e, by);
     if (e.has(C_PETAL)) game_.petals.onDeath(e);

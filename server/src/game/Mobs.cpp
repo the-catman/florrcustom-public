@@ -102,7 +102,7 @@ bool Mobs::spotTaken(float x, float y) {
         const Obj &o = entities_.objs[s];
         if (!o.hit || !game_.physics.tree.contains(s)) continue;
         float d;
-        if (e.has(C_FLOWER))
+        if (e.isPlayer())
             d = 600;
         else if (e.has(C_MOB))
             d = 100;
@@ -119,7 +119,7 @@ bool Mobs::nearFlower(double x, double y) {
     float bx = float(x - 35), by = float(y - 35);
     return game_.physics.tree.visit(bx, by, 70, 70, [&](uint16_t s) {
         const Obj &o = entities_.objs[s];
-        if (!world_.at(s)->has(C_FLOWER)) return false;
+        if (!world_.at(s)->isPlayer()) return false;
         float dx = float(o.body->x) - float(x), dy = float(o.body->y) - float(y), rr = o.hit->radius + 45.0f;
         return dx * dx + dy * dy < rr * rr;
     });

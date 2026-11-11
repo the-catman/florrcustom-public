@@ -319,6 +319,7 @@ void Menus::loadStorage() {
     game_.settings.touchControls = touch.empty() ? game_.mobile : touch == "Y";
     game_.settings.fixedJoystick = storageGet("florrio_fixed_joystick") == "Y";
     game_.name = storageGet("florrio_nickname");
+    game_.playTank = storageGet("play_as") != "flower";
     for (int t = 1; t < P_COUNT; t++)
         seenPetal_[t] = storageGet("gallery_" + std::to_string(t)) == galleryCode(t, false);
     for (int t = 1; t < M_COUNT; t++) seenMob_[t] = storageGet("mob_" + std::to_string(t)) == galleryCode(t, true);

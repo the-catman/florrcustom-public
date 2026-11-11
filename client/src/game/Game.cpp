@@ -17,6 +17,55 @@ using sim::Entity;
 
 Game::Game() : rendering(*this), ui(*this) {}
 
+bool Game::tankServer() const {
+    const Entity *cam = simulation.get(simulation.cameraId);
+    return cam && cam->driver;
+}
+
+// a tank's keys: E and C toggle firing and spinning, the number keys put a point into a stat
+// (1 is the last one), and with test keys on, K levels up, backslash goes back a tank, O dies and
+// B brings a boss
+void Game::onTankKey(const char *code) {
+    if (!simulation.flower()) return;
+    if (!std::strcmp(code, "KeyE")) {
+        autoFire = !autoFire;
+        ui.notify(autoFire ? "Auto Fire: ON" : "Auto Fire: OFF", 0x0000ff, 5000, "auto_fire");
+    } else if (!std::strcmp(code, "KeyC")) {
+        autoSpin = !autoSpin;
+        if (autoSpin) spinPhase_ = tankAngle - time / 1000;
+        ui.notify(autoSpin ? "Auto Spin: ON" : "Auto Spin: OFF", 0x0000ff, 5000, "auto_spin");
+    } else if (!std::strncmp(code, "Digit", 5) && code[5] >= '1' && code[5] <= '8' && !code[6]) {
+        ui.spendStat(8 - (code[5] - '0'));
+    } else if (devKeys) {
+        static const char *kDev[3] = {"KeyK", "Backslash", "KeyO"};
+        for (int i = 0; i < 3; i++)
+            if (!std::strcmp(code, kDev[i])) sendDev(i);
+    }
+}
+
+bool Game::onFlowerDevKey(const char *code) {
+    if (!devKeys) return false;
+    if (!std::strcmp(code, "KeyP")) {
+        ui.togglePetalPicker();
+    } else if (!std::strcmp(code, "Escape") && ui.petalPickerOpen()) {
+        ui.togglePetalPicker();
+    } else if (!std::strcmp(code, "KeyK")) {
+        sendDev(0);
+    } else if (!std::strcmp(code, "KeyO")) {
+        sendDev(2);
+    } else {
+        return false;
+    }
+    return true;
+}
+
+void Game::sendDev(int what, int type) {
+    net::Writer w;
+    w.u8(uint8_t(what));
+    if (type >= 0) w.u8(uint8_t(type));
+    connection.send(MSG_DEV, w.b);
+}
+
 bool Game::init() {
     if (!ctx.init()) return false;
     int device = ui_device();
@@ -47,6 +96,9 @@ void Game::onKey(const char *key, const char *code, bool down) {
         in.keyL = k;
     else if (!std::strcmp(code, "KeyJ"))
         in.keyJ = k;
+    if (!std::strcmp(code, "KeyY")) in.keyY = k;
+    if (!std::strcmp(code, "KeyU")) in.keyU = k;
+    if (!std::strcmp(code, "KeyM")) in.keyM = k;
     if (!down) return;
     if (!std::strcmp(code, "KeyY"))
         keyY_ = true;
@@ -80,7 +132,10 @@ void Game::onKey(const char *key, const char *code, bool down) {
             screen = Screen::Title;
         }
     } else if (screen == Screen::Playing) {
-        ui.inventory.onKey(code);
+        if (tankMode())
+            onTankKey(code);
+        else if (!onFlowerDevKey(code))
+            ui.inventory.onKey(code);
     }
 }
 
@@ -88,17 +143,32 @@ void Game::onEnter() {
     if (screen == Screen::Playing) return;
     connection.send(MSG_CONTINUE);
     ui_storage_set("florrio_nickname", name.c_str());
-    net::Writer w;
-    w.str(name);
-    connection.send(MSG_SPAWN, w.b);
+    sendSpawn();
     screen = Screen::Playing;
     ui.showDeathHud(false);
     spawnedAt = time;
     wasAlive_ = false;
 }
 
+void Game::sendSpawn() {
+    if (tankServer()) {
+        net::Writer k;
+        k.u8(playTank ? 0 : 1);
+        connection.send(MSG_KIND, k.b);
+        tankPlayer_ = playTank;
+    }
+    net::Writer w;
+    w.str(name);
+    connection.send(MSG_SPAWN, w.b);
+    spawnSentAt_ = time;
+}
+
 // Sent whenever it changes, at most every 30 ms.
 void Game::sendInput(double now) {
+    if (tankMode()) {
+        sendTankInput(now);
+        return;
+    }
     uint32_t flags = 0;
     if (in.left || in.space) flags |= 1;
     if (in.right || in.shift) flags |= 2;
@@ -158,10 +228,74 @@ void Game::sendInput(double now) {
     connection.send(MSG_INPUT, w.b);
 }
 
+// a tank: WASD or the arrows move it, it aims at the mouse and fires with the left button or
+// space; the right button or shift is its second ability
+void Game::sendTankInput(double now) {
+    uint32_t flags = 0;
+    if (in.left || in.space || autoFire) flags |= 1;
+    if (in.right || in.shift) flags |= 2;
+    if (in.up) flags |= kInputUp;
+    if (in.down) flags |= kInputDown;
+    if (in.leftKey) flags |= kInputLeft;
+    if (in.rightKey) flags |= kInputRight;
+    float angle = 0, dist = 0;
+    Entity *p = simulation.get(player);
+    if (touchMode()) {
+        flags = ui.touch.attacking() ? 1 : 0;
+        if (ui.touch.defending()) flags |= 2;
+        float s = ui.touch.joystickStrength();
+        if (s > .2f) {
+            float a = ui.touch.joystickAngle(), x = std::cos(a), y = std::sin(a);
+            if (y < -.38f) flags |= kInputUp;
+            if (y > .38f) flags |= kInputDown;
+            if (x < -.38f) flags |= kInputLeft;
+            if (x > .38f) flags |= kInputRight;
+            angle = a;
+            dist = 200;
+        }
+    } else if (autoSpin) {
+        angle = float(std::remainder(now / 1000 + spinPhase_, 6.283185307179586));  // a radian a second
+        dist = 350;
+    } else {
+        float s = rendering.worldScale();
+        float wx = rendering.cameraX() + (in.mx - ctx.width() * .5f) / s,
+              wy = rendering.cameraY() + (in.my - ctx.height() * .5f) / s;
+        float px = p ? p->x : rendering.cameraX(), py = p ? p->y : rendering.cameraY();
+        angle = std::atan2(wy - py, wx - px);
+        dist = std::hypot(wx - px, wy - py);
+    }
+    if (!simulation.flower()) angle = dist = 0;
+    if (dist > 0) tankAngle = angle;
+    if (ui.overTankHud(in.mx, in.my)) flags &= ~3u;
+    bool force = forceInput;
+    forceInput = false;
+    if (!force) {
+        if (flags == lastFlags_ && angle == lastAngle_ && dist == lastDist_) return;
+        if (lastInput_ > 0 && now - lastInput_ <= 30) return;
+    }
+    lastInput_ = now;
+    lastFlags_ = flags;
+    lastAngle_ = angle;
+    lastDist_ = dist;
+    net::Writer w;
+    w.varint(flags);
+    w.f32(angle);
+    w.f32(dist);
+    connection.send(MSG_INPUT, w.b);
+}
+
 void Game::handleEvents(double now) {
     for (const net::Event &event : connection.events) {
         if (event.type == EVENT_PLAYER_ID) {
             ui_storage_set("cp6_player_id", event.text.c_str());
+            continue;
+        }
+        if (event.type == EVENT_DEV) {
+            devKeys = true;
+            continue;
+        }
+        if (event.type == EVENT_NOTIFY) {
+            ui.notify(event.text, event.color, event.ms);
             continue;
         }
         Entity *e = simulation.get(event.id);
@@ -188,8 +322,13 @@ void Game::trackPlayer(double now) {
     Entity *flower = simulation.get(id);
     bool alive = flower && flower->deadAt < 0;  // the server keeps a dead flower around for a moment
     if (alive) {
+        if (!wasAlive_ && devKeys)
+            ui.notify(flower->tank ? "Dev keys: K to level up, \\ for the previous tank, O to die"
+                                   : "Dev keys: K to level up, P to pick petals, O to die",
+                      0x000000, 8000, "dev_keys");
         player = id;
         wasAlive_ = true;
+        tankPlayer_ = bool(flower->tank);
         if (flower->flower) rememberLife(*flower->flower);
     }
     if (cam && !alive && wasAlive_) lastLife.killer = cam->killer;
@@ -198,6 +337,7 @@ void Game::trackPlayer(double now) {
         deadAt = now;
         ui.showDeathHud(true);
     }
+    if (screen == Screen::Playing && !wasAlive_ && now - spawnSentAt_ > 1000) sendSpawn();
 }
 
 void Game::rememberLife(const sim::FlowerData &flower) {
@@ -223,6 +363,7 @@ void Game::frame(double now) {
     connection.frame(simulation, now);
     if (connection.dropped()) {
         screen = Screen::Title;
+        devKeys = false;
         wasAlive_ = false;
         player = 0;
     }
@@ -250,9 +391,31 @@ void Game::frame(double now) {
     in.clicked = false;
 }
 
+void Game::choosePlay(bool tank) {
+    playTank = tank;
+    ui_storage_set("play_as", tank ? "tank" : "flower");
+}
+
 bool Game::onButton(int button, bool down) {
-    if (screen == Screen::Title) return ui.menus.onButton(button, down);
+    if (screen == Screen::Title) {
+        float u = ui.hudScale();
+        int kind = button == 0 && down && tankServer() ? ui.playKindAt(in.mx / u, in.my / u) : -1;
+        if (kind >= 0) {
+            choosePlay(kind == 0);
+            return true;
+        }
+        return ui.menus.onButton(button, down);
+    }
     if (screen != Screen::Playing || button != 0) return false;
+    if (tankMode()) return ui.onTankButton(down);
+    if (ui.petalPickerOpen()) {
+        float u = ui.hudScale();
+        int type = ui.pickerAt(in.mx / u, in.my / u);
+        if (type >= 0) {
+            if (down && type > 0) sendDev(3, type);
+            return true;
+        }
+    }
     return ui.inventory.onButton(down);
 }
 

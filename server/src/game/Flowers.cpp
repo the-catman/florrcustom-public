@@ -14,7 +14,7 @@ using namespace world;
 
 // Names lose a few invisible or oversized characters and surrounding whitespace, then are cut to
 // at most 13 bytes of valid UTF-8.
-static std::string cleanName(std::string n) {
+std::string cleanName(std::string n) {
     static const char *const kDropped[] = {
         "\xf0\x92\x88\x99", "\xf0\x92\x90\xab", "\xef\xb7\xbd", "\xeb\xb8\xbb",
         "\xea\xa7\x85",     "\xe2\x80\x8f",     "\xe3\x85\xa4",
@@ -81,7 +81,7 @@ bool Flowers::spawnTaken(float x, float y) {
         const Obj &o = entities_.objs[s];
         if (!o.hit || !game_.physics.tree.contains(s)) continue;
         float d;
-        if (e.has(C_FLOWER))
+        if (e.isPlayer())
             d = 800;
         else if (e.has(C_MOB))
             d = 100;
@@ -292,7 +292,7 @@ void Flowers::recover(Entity &f, FlowerState &fs, int level, double dt) {
 void Flowers::move(double dt) {
     for (auto &[id, c] : game_.clients.all) {
         Entity *f = world_.get(c.flower);
-        if (!f || f->hp() <= 0) continue;
+        if (!f || f->hp() <= 0 || !f->has(C_FLOWER)) continue;
         Body &b = entities_.body(*f);
         float speed = float(dt * double(game_.effects.slowdown(*f) * 2.5f) * 0.001);
         float dist = c.input.dist;
@@ -344,6 +344,26 @@ void Flowers::giveXp(Entity &f, float xp) {
         updateStats(f);
     }
     if ((f.flower->xp & 0xffff) != 65535) f.flower->setXp(65535);
+}
+
+// test keys, for servers started with them on: a level up, death, or a petal in the first free slot
+void Flowers::onDev(Entity &f, int what, int type) {
+    if (!game_.devKeys || f.hp() <= 0) return;
+    FlowerState &fs = states[f.slot()];
+    if (what == 0 && f.level() < 99) {
+        float m = game_.arena.royale() ? 3.0f : 1.0f;
+        for (int lv = f.level(); f.level() == lv;) giveXp(f, std::max(1.0f, (levelNeed(lv) - fs.levelXp) / m));
+    } else if (what == 2) {
+        game_.combat.damage(f, nullptr, f.hp(), 1);
+    } else if (what == 3 && isPetal(type)) {
+        int n = slotsWithSpares(f.level()), slot = n - 1;
+        for (int j = 0; j < n; j++)
+            if (!fs.slots[j]) {
+                slot = j;
+                break;
+            }
+        setSlot(f, slot, uint8_t(type));
+    }
 }
 
 // Max health from level and petals, the third eye, and the camera's zoom and respawn level. Runs

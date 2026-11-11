@@ -34,7 +34,8 @@ static bool onMouse(int type, const EmscriptenMouseEvent *e, void *) {
 static bool onKey(int type, const EmscriptenKeyboardEvent *e, void *) {
     g.onKey(e->key, e->code, type == EMSCRIPTEN_EVENT_KEYDOWN);
     // keep the browser from acting on keys the game uses
-    return !(e->ctrlKey || e->metaKey) && std::string(e->key) != "F5" && std::string(e->key) != "F12";
+    return !(e->ctrlKey || e->metaKey) && std::string(e->key) != "F5" && std::string(e->key) != "F11" &&
+           std::string(e->key) != "F12";
 }
 
 // with touch controls every finger is tracked; without, the browser turns touches into mouse events

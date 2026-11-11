@@ -14,7 +14,7 @@ public:
     explicit Entities(Game &game);
 
     Obj &obj(const world::Entity &e) { return objs[e.slot()]; }
-    world::Entity &create(uint32_t comps);
+    world::Entity &create(uint64_t comps);
     void destroy(uint32_t id);
     void setOwner(world::Entity &e, uint32_t owner);
     Body &body(world::Entity &e);

@@ -17,6 +17,7 @@
 #include "game/Physics.h"
 #include "game/Rng.h"
 #include "game/StatusEffects.h"
+#include "game/Tanks.h"
 #include "game/Tables.h"
 
 namespace game {
@@ -54,7 +55,10 @@ public:
     StatusEffects effects;
     Mobs mobs;
     MobAi mobAi;
+    Tanks tanks;
     Clients clients;
+    bool tankMode = false;  // players drive diep tanks instead of flowers
+    bool devKeys = false;   // MSG_DEV works
 
 private:
     struct Timer {

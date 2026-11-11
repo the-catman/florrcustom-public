@@ -38,13 +38,15 @@ Environment variables:
 - `PORT`: the port to listen on (8098 by default).
 - `HOST`: the address to listen on (0.0.0.0 by default).
 - `STATIC`: folders to serve the page from, in order, separated by `:` (`client/dist` by default).
+- `MODE`: `flower` to play as florr's flowers instead of tanks.
+- `DEV_KEYS`: `1` lets every player use the dev keys. Keep it off on a public server.
 
 ## Docker
 
 ```
 docker compose up -d --build
 ```
-This builds the client and server into one image and runs it, with the game on port 8098 like running it by hand. `GAME_PORT` changes the port.
+This builds the client and server into one image and runs it, with the game on port 8098 like running it by hand. `GAME_PORT` changes the port, and `MODE` and `DEV_KEYS` are passed through.
 
 To serve it over HTTPS, put [Caddy](https://caddyserver.com) in front:
 ```

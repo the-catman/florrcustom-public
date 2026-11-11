@@ -93,6 +93,8 @@ int main() {
 
     g_game = std::make_unique<game::Game>(g_rd(), nowMs());
     g_game->setEntropy([] { return uint32_t(g_rd()); });
+    g_game->tankMode = env("MODE", "tank") != "flower";
+    g_game->devKeys = env("DEV_KEYS", "") == "1";
 
     uWS::App app;
     app.ws<Socket>("/*", {

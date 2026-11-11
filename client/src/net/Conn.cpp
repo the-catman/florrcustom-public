@@ -130,6 +130,11 @@ void Conn::apply(sim::Simulation &sim, const uint8_t *b, size_t n, double now) {
         } else if (event.type == protocol::EVENT_PICKUP) {
             event.id = r.ref();
             event.slot = int(r.u8());
+        } else if (event.type == protocol::EVENT_NOTIFY) {
+            event.text = r.str();
+            event.color = r.u32();
+            event.ms = r.f32();
+        } else if (event.type == protocol::EVENT_DEV) {
         } else if (event.type == 9 || event.type < 2 || event.type >= 15) {
             event.text = r.str();
         } else {
