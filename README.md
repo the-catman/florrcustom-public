@@ -44,16 +44,24 @@ Environment variables:
 ```
 docker compose up -d --build
 ```
-This builds the client and server into one image and runs it behind [Caddy](https://caddyserver.com), which handles HTTPS. By default it serves https://localhost with Caddy's own certificate. Set `SITE_ADDRESS` to your domain to get a real one (ports 80 and 443 need to be reachable). `HTTP_PORT` and `HTTPS_PORT` change the published ports. All of these can go in a `.env` file next to `compose.yaml`.
+This builds the client and server into one image and runs it, with the game on port 8098 like running it by hand. `GAME_PORT` changes the port.
 
-To play through a Cloudflare quick tunnel instead, without opening any ports:
+To serve it over HTTPS, put [Caddy](https://caddyserver.com) in front:
 ```
-docker compose up -d --build tunnel
-docker compose logs tunnel | grep trycloudflare.com
+docker compose -f compose.yaml -f compose.caddy.yaml up -d --build
+```
+By default it serves https://localhost with Caddy's own certificate. Set `SITE_ADDRESS` to your domain to get a real one (ports 80 and 443 need to be reachable). `HTTP_PORT` and `HTTPS_PORT` change its ports.
+
+Or play through a Cloudflare quick tunnel, without opening any ports. Cloudflare handles HTTPS, so this doesn't need Caddy:
+```
+docker compose -f compose.yaml -f compose.tunnel.yaml up -d --build
+docker compose -f compose.yaml -f compose.tunnel.yaml logs tunnel | grep trycloudflare.com
 ```
 The second command prints the address. It changes whenever the tunnel restarts.
 
-The game container holds only the static server binary and the client. It runs as a non-root user with no capabilities on a read-only filesystem, on a network with no internet access, and isn't published itself: players reach it through Caddy or the tunnel.
+Other commands like `logs` and `down` need the same `-f` files, so take a setup down with its files before switching to another. To skip typing them, put `COMPOSE_FILE=compose.yaml:compose.caddy.yaml` (or `compose.tunnel.yaml`, or all three) in a `.env` file next to `compose.yaml`, along with any of the settings above.
+
+The game container holds only the static server binary and the client, and runs as a non-root user with no capabilities on a read-only filesystem. With Caddy or the tunnel it also sits on a network with no internet access and isn't published itself, so players reach it only through them. On its own it needs a published port, which Docker can't give a container on a network without internet access.
 
 ## Layout
 

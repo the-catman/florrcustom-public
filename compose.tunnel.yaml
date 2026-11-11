@@ -1,0 +1,21 @@
+services:
+  server:
+    ports: !reset []
+    networks: [game]
+
+  tunnel:
+    image: cloudflare/cloudflared:2026.10.7
+    depends_on: [server]
+    command: tunnel --metrics 127.0.0.1:20241 --url http://server:8098
+    networks: [game, web]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 256m
+    pids_limit: 64
+    restart: unless-stopped
+
+networks:
+  game:
+    internal: true
+  web:
